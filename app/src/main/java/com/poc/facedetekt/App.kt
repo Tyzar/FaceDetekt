@@ -114,7 +114,8 @@ fun RegisterFace(faceNetEmbedder: FaceNetEmbedder, onReqSignIn: () -> Unit) {
       modifier = Modifier
         .fillMaxSize()
         .padding(16.dp),
-      verticalArrangement = Arrangement.Center
+      verticalArrangement = Arrangement.Center,
+      horizontalAlignment = Alignment.CenterHorizontally
     ) {
       Text("Face has been registered")
       Spacer(Modifier.height(16.dp))
@@ -130,8 +131,6 @@ fun RegisterFace(faceNetEmbedder: FaceNetEmbedder, onReqSignIn: () -> Unit) {
         .fillMaxSize()
         .padding(16.dp),
       onCaptureFace = {
-        faceRegistered = true
-        //get embedding of bitmap with faceembedder
         coroutineScope.launch {
           if (isLoading) return@launch
 
