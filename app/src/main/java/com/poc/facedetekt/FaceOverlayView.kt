@@ -15,15 +15,14 @@ class FaceOverlayView(context: Context) : View(context) {
     strokeWidth = 5f
   }
 
-  private val mFaceBounds = mutableListOf<RectF>()
-  val faceBounds get() = mFaceBounds
+  private var mFaceBound: RectF? = null
 
   private var imageWidth = 1
   private var imageHeight = 1
   private var isFrontCamera = false
 
   fun updateFaces(
-    faces: List<Rect>,
+    faceRect: Rect,
     imageWidth: Int,
     imageHeight: Int,
     isFrontCamera: Boolean
@@ -32,22 +31,7 @@ class FaceOverlayView(context: Context) : View(context) {
     this.imageHeight = imageHeight
     this.isFrontCamera = isFrontCamera
 
-    // Resize list jika perlu
-    if (mFaceBounds.size < faces.size) {
-      repeat(faces.size - mFaceBounds.size) {
-        mFaceBounds.add(RectF())
-      }
-    }
-
-    // Update value (tanpa alloc baru)
-    faces.forEachIndexed { i, rect ->
-      mFaceBounds[i].set(rect)
-    }
-
-    // Trim kalau jumlah wajah berkurang
-    if (mFaceBounds.size > faces.size) {
-      mFaceBounds.subList(faces.size, mFaceBounds.size).clear()
-    }
+    mFaceBound = RectF(faceRect)
 
     invalidate()
   }
@@ -55,16 +39,16 @@ class FaceOverlayView(context: Context) : View(context) {
   override fun onDraw(canvas: Canvas) {
     super.onDraw(canvas)
 
-    if (mFaceBounds.isEmpty()) return
+    if (mFaceBound == null || mFaceBound!!.isEmpty) return
 
     val scaleX = width.toFloat() / imageHeight.toFloat()
     val scaleY = height.toFloat() / imageWidth.toFloat()
 
-    mFaceBounds.forEach { rect ->
-      val left = rect.left * scaleX
-      val top = rect.top * scaleY
-      val right = rect.right * scaleX
-      val bottom = rect.bottom * scaleY
+    if (mFaceBound != null) {
+      val left = mFaceBound!!.left * scaleX
+      val top = mFaceBound!!.top * scaleY
+      val right = mFaceBound!!.right * scaleX
+      val bottom = mFaceBound!!.bottom * scaleY
 
       if (isFrontCamera) {
         canvas.drawRect(
