@@ -9,11 +9,9 @@ import android.graphics.YuvImage
 import android.media.Image
 import android.util.Log
 import androidx.camera.core.ImageProxy
-import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
 
 fun ImageProxy.toJpegBytes(): ByteArray {
   val yBuffer = planes[0].buffer
@@ -84,69 +82,100 @@ suspend fun Image.toBitmap(): Bitmap? = withContext(Dispatchers.Default) {
   return@withContext BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
 }
 
-fun cropBitmapDirect(sourceBitmap: Bitmap, mlKitRect: Rect): Bitmap? {
-  // 1. Tentukan batas awal (left, top) dan batas akhir (right, bottom)
-  val originalLeft = mlKitRect.left
-  val originalTop = mlKitRect.top
-  val originalRight = mlKitRect.right
-  val originalBottom = mlKitRect.bottom
+fun cropBitmapDirect(
+  sourceBitmap: Bitmap,
+  scaledRect: Rect,
+  isFrontCamera: Boolean = false
+): Bitmap? {
+  if (isFrontCamera) {
+    // A. Mirroring Horizontal (X): Kunci untuk kamera depan
+    val tempLeft = scaledRect.left
+    scaledRect.left = sourceBitmap.width - scaledRect.right // Gunakan bitmapWidth
+    scaledRect.right = sourceBitmap.width - tempLeft
 
-  // 2. Terapkan Clamping (Pembatasan Batas)
-  // Tujuan: Memastikan tidak ada nilai negatif atau melebihi dimensi Bitmap.
+    // B. JANGAN PERNAH MIRRORING VERTIKAL jika isFrontCamera = true
+    // scaledRect.top dan scaledRect.bottom TIDAK BOLEH DIGANGGU di sini.
+  }
 
-  // a. Tentukan koordinat awal (start/left/top)
-  // Gunakan coerceAtLeast(0) untuk memastikan nilai tidak negatif.
-  // Gunakan coerceAtMost() pada pasangan koordinat untuk memastikan start selalu yang terkecil.
-  val startX = originalLeft.coerceAtMost(originalRight).coerceAtLeast(0)
-  val startY = originalTop.coerceAtMost(originalBottom).coerceAtLeast(0)
 
-  // b. Tentukan koordinat akhir (end/right/bottom)
-  // Gunakan coerceAtMost(dimensi) untuk memastikan nilai tidak melebihi batas.
-  // Gunakan coerceAtLeast() pada pasangan koordinat untuk memastikan end selalu yang terbesar.
-  val endX = originalLeft.coerceAtLeast(originalRight).coerceAtMost(sourceBitmap.width)
-  val endY = originalTop.coerceAtLeast(originalBottom).coerceAtMost(sourceBitmap.height)
+  // 1. Tentukan Titik Awal (start/left/top)
+  val startX = scaledRect.left.coerceAtMost(scaledRect.right).coerceAtLeast(0)
+  val startY = scaledRect.top.coerceAtMost(scaledRect.bottom)
+    .coerceAtLeast(0) // <-- Ambil yang terkecil dan >= 0
 
-  // 3. Hitung Lebar dan Tinggi setelah Clamping
+  // 2. Tentukan Titik Akhir (end/right/bottom)
+  val endX = scaledRect.left.coerceAtLeast(scaledRect.right).coerceAtMost(sourceBitmap.width)
+  val endY = scaledRect.top.coerceAtLeast(scaledRect.bottom)
+    .coerceAtMost(sourceBitmap.height) // <-- Ambil yang terbesar dan <= height
+
+  // 3. Hitung Dimensi
   val cropWidth = endX - startX
   val cropHeight = endY - startY
 
-  // 4. Cek validitas akhir (mencegah lebar/tinggi 0 atau negatif)
+  // Diagnostik: Jika ini menghasilkan 175, berarti endY dan startY terlalu dekat
+  Log.d(
+    "FINAL_CROP",
+    "Final Rect: L:$startX, T:$startY, R:$endX, B:$endY. Dimensions: $cropWidth x $cropHeight"
+  )
+
   if (cropWidth <= 0 || cropHeight <= 0) {
-    Log.w("Crop", "Crop area is invalid: $cropWidth x $cropHeight.")
+    Log.e("Crop", "Crop area is invalid. Width:$cropWidth, Height:$cropHeight.")
     return null
   }
 
-  // 5. Buat Bitmap hasil potong
   return try {
-    Bitmap.createBitmap(
-      sourceBitmap,
-      startX,
-      startY,
-      cropWidth,
-      cropHeight
-    )
+    Bitmap.createBitmap(sourceBitmap, startX, startY, cropWidth, cropHeight)
   } catch (e: Exception) {
-    // Menangkap error umum (misalnya IllegalArgumentException jika ada masalah sisa clamping)
-    Log.e("Crop", "Error creating Bitmap: ${e.message}", e)
+    Log.e("Crop", "Error cropping: ${e.message}", e)
     null
   }
 }
 
+/**
+ * Memutar Bitmap sumber sesuai dengan sudut yang diberikan (biasanya 90, 180, atau 270 derajat).
+ * * @param source Bitmap yang akan dirotasi (fullBitmap mentah dari ImageCapture).
+ * @param degrees Sudut rotasi (diambil dari faceData.rotation).
+ * @return Bitmap baru yang sudah dirotasi.
+ */
 fun rotateBitmap(source: Bitmap, degrees: Float): Bitmap {
-  if (degrees == 0f || degrees == 360f || degrees == -360f) return source
+  // 1. Cek apakah rotasi diperlukan
+  if (degrees == 0f || degrees % 360f == 0f) {
+    Log.d("Rotate", "Rotation is 0. Returning source bitmap.")
+    return source
+  }
 
+  // 2. Buat Matrix rotasi
   val matrix = Matrix()
   matrix.postRotate(degrees)
 
-  val rotatedBitmap = Bitmap.createBitmap(
-    source,
-    0,
-    0,
-    source.width,
-    source.height,
-    matrix,
-    true
+  Log.d(
+    "Rotate",
+    "Rotating bitmap by $degrees degrees. Original size: ${source.width}x${source.height}"
   )
+
+  // 3. Buat Bitmap baru
+  val rotatedBitmap = try {
+    Bitmap.createBitmap(
+      source,
+      0,
+      0,
+      source.width,
+      source.height,
+      matrix,
+      true // filter = true untuk kualitas yang lebih baik
+    )
+  } catch (e: Exception) {
+    Log.e("Rotate", "Failed to create rotated bitmap: ${e.message}", e)
+    return source // Kembalikan sumber jika gagal
+  }
+
+  // 4. (Opsional tapi Disarankan) Recycle Bitmap Sumber
+  // Karena kita tidak ingin menyimpan dua salinan besar di memori.
+  // Catatan: Pastikan source tidak digunakan lagi setelah pemanggilan ini.
+  source.recycle()
+
+  Log.d("Rotate", "Rotation successful. New size: ${rotatedBitmap.width}x${rotatedBitmap.height}")
+
   return rotatedBitmap
 }
 

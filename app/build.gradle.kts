@@ -34,6 +34,16 @@ android {
   buildFeatures {
     compose = true
   }
+
+  packaging {
+    // TFLite memerlukan file .so-nya untuk di-store (uncompressed) di APK/AAB
+    // agar menghindari masalah 16KB alignment.
+    jniLibs {
+      // Gunakan `useLegacyPackaging = true` untuk memastikan file .so tidak terkompresi.
+      // Ini adalah solusi paling andal di AGP modern.
+      useLegacyPackaging = true
+    }
+  }
 }
 
 dependencies {
@@ -55,6 +65,9 @@ dependencies {
 
   //ML kit
   implementation(libs.google.mlkit.face.detection)
+
+  implementation(libs.tensorflow.lite)
+  implementation(libs.tensorflow.lite.support)
 
   testImplementation(libs.junit)
   androidTestImplementation(libs.androidx.junit)

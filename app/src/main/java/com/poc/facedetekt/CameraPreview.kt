@@ -3,7 +3,6 @@ package com.poc.facedetekt
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.util.Log
-import android.util.Size
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.camera.core.CameraSelector
@@ -39,7 +38,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.launch
-import kotlin.math.absoluteValue
 
 @Composable
 fun CameraPreview(modifier: Modifier = Modifier, onCaptureFace: (Bitmap) -> Unit) {
@@ -162,38 +160,43 @@ fun CameraPreview(modifier: Modifier = Modifier, onCaptureFace: (Bitmap) -> Unit
                   val fullBitmap =
                     imageProxy.image?.toBitmap() ?: return@launch
 
-                  val fullWidth = fullBitmap.width
-                  val fullHeight = fullBitmap.height
-                  val analysisWidth = faceData.imgWidth
-                  val analysisHeight = faceData.imgHeight
+                  val fullBitmapWidth = fullBitmap.width
+                  val fullBitmapHeight = fullBitmap.height
 
-// Hitung faktor skala
-                  val scaleX = fullWidth.toFloat() / analysisWidth.toFloat()
-                  val scaleY = fullHeight.toFloat() / analysisHeight.toFloat()
-
-// Skala Rect ML Kit
-                  val scaledRect = Rect(
-                    (faceData.mlKitRect.left * scaleX).toInt(),
-                    (faceData.mlKitRect.top * scaleY).toInt(),
-                    (faceData.mlKitRect.right * scaleX).toInt(),
-                    (faceData.mlKitRect.bottom * scaleY).toInt()
-                  )
-
-                  //val rotatedBmp = rotateBitmap(fullBitmap, faceData.rotation.toFloat())
-//                  if (rotatedBmp !== fullBitmap) {
-//                    fullBitmap.recycle()
-//                  }
-
-                  // 3. Lakukan pemotongan dan rotasi akhir
-                  val croppedBitmap = cropBitmapDirect(fullBitmap, scaledRect)
-
-                  if (croppedBitmap != null) {
-                    Log.e("BMP", "Bitmap cropped...")
-                    onCaptureFace(croppedBitmap)
+                  //rotasi fullBitmap dengan nilai faceData.rotation
+                  val rotatedBitmap = rotateBitmap(fullBitmap, faceData.rotation.toFloat())
+                  if (rotatedBitmap !== fullBitmap) {
+                    fullBitmap.recycle()
                   }
 
-//                  rotatedBmp.recycle()
-                  fullBitmap.recycle()
+                  val scaleX = fullBitmapWidth.toFloat() / faceData.imgWidth
+                  val scaleY = fullBitmapHeight.toFloat() / faceData.imgHeight
+                  val faceRect = faceData.mlKitRect
+
+                  val mappedRect = Rect(
+                    (faceRect.left * scaleX).toInt(),
+                    (faceRect.top * scaleY).toInt(),
+                    (faceRect.right * scaleX).toInt(),
+                    (faceRect.bottom * scaleY).toInt()
+                  )
+                  Log.d("BMP", "Face Rect Bitmap: ${faceRect.width()}x${faceRect.height()}")
+                  Log.d("BMP", "Scaled Rect Bitmap: ${mappedRect.width()}x${mappedRect.height()}")
+
+// Add padding if needed
+                  mappedRect.inset(-100, -100)
+
+// Crop using mappedRect
+                  val faceBitmap = cropBitmapDirect(rotatedBitmap, mappedRect, true) ?: run {
+                    Log.e("BMP", "Failed to crop face bitmap.")
+                    rotatedBitmap.recycle()
+                    imageProxy.close()
+                    return@launch
+                  }
+
+                  Log.e("BMP", "Face bitmap cropped: ${faceBitmap.width}x${faceBitmap.height}")
+                  onCaptureFace(faceBitmap)
+
+                  rotatedBitmap.recycle()
                   imageProxy.close()
                 }
               }
